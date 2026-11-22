@@ -1,0 +1,766 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sound Displayer V3.6.9</title>
+<style>
+  :root{
+    --night:#0a0820;
+    --chalk:#e9e6ff;
+    --dim:rgba(233,230,255,.55);
+    --c3:#6fe3ff;   /* 3, the start */
+    --c6:#ffd36b;   /* 6, the peak  */
+    --c9:#c58bff;   /* 9, the end   */
+    --face:Bahnschrift,"DIN Alternate","Segoe UI",system-ui,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0;background:var(--night);color:var(--chalk);
+    font-family:var(--face);overflow:hidden;-webkit-font-smoothing:antialiased}
+  canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
+  button{font:inherit;color:inherit;background:none;border:0;cursor:pointer;padding:0}
+  button:focus-visible{outline:2px solid var(--c6);outline-offset:4px;border-radius:2px}
+  [hidden]{display:none!important}
+
+  /* live readout, top left */
+  #readout{position:fixed;left:28px;top:22px;pointer-events:none;line-height:1}
+  #readout .freq{font-size:54px;font-weight:300;font-stretch:75%;letter-spacing:.01em}
+  #readout .freq small{font-size:18px;color:var(--dim);margin-left:6px}
+  #readout .line{margin-top:8px;font-size:15px;color:var(--dim)}
+  #readout .line b{color:var(--chalk);font-weight:600}
+
+  /* 3 / 6 / 9 phase lamps, top right */
+  #phase{position:fixed;right:28px;top:18px;margin:0;padding:0;list-style:none;display:flex;gap:26px;pointer-events:none}
+  #phase li{text-align:center;opacity:.28}
+  #phase b{display:block;font-size:54px;font-weight:600;font-stretch:75%;line-height:1}
+  #phase span{font-size:13px;color:var(--chalk)}
+  #phase li:nth-child(1) b{color:var(--c3)}
+  #phase li:nth-child(2) b{color:var(--c6)}
+  #phase li:nth-child(3) b{color:var(--c9)}
+
+  /* control strip */
+  #bar{position:fixed;left:0;right:0;bottom:0;display:flex;flex-wrap:wrap;gap:10px 40px;align-items:flex-end;
+    padding:34px 28px 20px;background:linear-gradient(to top,rgba(10,8,32,.92) 40%,rgba(10,8,32,0));
+    transition:opacity .35s}
+  #bar .grp{display:flex;flex-direction:column;gap:8px}
+  #bar .grp.end{margin-left:auto}
+  #bar .lbl{font-size:13px;color:var(--dim)}
+  #bar .row{display:flex;flex-wrap:wrap;gap:6px 20px;align-items:flex-end}
+  #bar button{font-size:17px;white-space:nowrap;padding:4px 0 6px;border-bottom:2px solid transparent;color:var(--dim)}
+  #bar button:hover{color:var(--chalk)}
+  #bar button[aria-pressed="true"]{color:var(--chalk);border-bottom-color:var(--c6)}
+  #bar .sym button{font-size:24px;line-height:22px;font-weight:600;font-stretch:75%;min-width:22px;opacity:.45}
+  #bar .sym button[aria-pressed="true"]{opacity:1;border-bottom-color:currentColor}
+  #bar .sym button:nth-child(1){color:var(--c3)}
+  #bar .sym button:nth-child(2){color:var(--c6)}
+  #bar .sym button:nth-child(3){color:var(--c9)}
+  #bar .sym .auto{font-size:17px;font-weight:400;font-stretch:normal;opacity:1;color:var(--dim);position:relative;margin-left:6px}
+  #bar .sym .auto[aria-pressed="true"]{color:var(--chalk);border-bottom-color:rgba(233,230,255,.2)}
+  #bar .sym .auto i{position:absolute;left:0;bottom:-2px;height:2px;width:0;background:var(--chalk)}
+  body.idle{cursor:none}
+  body.idle #bar{opacity:0;pointer-events:none}
+  #readout,#phase{transition:opacity .35s}
+  body.idle #readout,body.idle #phase{opacity:0}
+
+  /* first screen */
+  #welcome{position:fixed;inset:0;display:flex;flex-direction:column;justify-content:center;
+    padding:0 clamp(28px,9vw,140px) 6vh;background:radial-gradient(120% 90% at 0% 50%,rgba(10,8,32,.94) 30%,rgba(10,8,32,.35))}
+  #welcome h1{margin:0;font-weight:300;font-stretch:75%;font-size:clamp(46px,8.4vw,128px);line-height:.92;letter-spacing:-.01em}
+  #welcome .ver{font-weight:600;font-stretch:75%;font-size:clamp(34px,5.6vw,84px);line-height:1.1;margin-top:.1em}
+  #welcome .ver i{font-style:normal}
+  #welcome .ver i:nth-of-type(1){color:var(--c3)}
+  #welcome .ver i:nth-of-type(2){color:var(--c6)}
+  #welcome .ver i:nth-of-type(3){color:var(--c9)}
+  #welcome p{max-width:52ch;font-size:19px;line-height:1.5;color:var(--dim);margin:26px 0 0}
+  #welcome .pick{display:flex;flex-wrap:wrap;gap:14px;margin-top:30px}
+  #welcome .pick button{font-size:19px;padding:13px 22px 14px;border:1.5px solid rgba(233,230,255,.35);border-radius:3px}
+  #welcome .pick button:hover{border-color:var(--chalk);background:rgba(233,230,255,.06)}
+  #welcome .pick button.main{background:var(--c6);border-color:var(--c6);color:#1a1230;font-weight:600}
+  #welcome .pick button.main:hover{background:#ffe09a}
+  #welcome .fine{font-size:15px;margin-top:22px}
+
+  /* explanation panel */
+  #about{position:fixed;top:0;right:0;bottom:0;width:min(470px,100%);overflow:auto;padding:30px 32px 40px;
+    background:rgba(13,10,40,.96);border-left:1px solid rgba(233,230,255,.14)}
+  #about h2{margin:0 0 4px;font-size:30px;font-weight:300;font-stretch:75%}
+  #about h3{margin:26px 0 6px;font-size:18px;font-weight:600}
+  #about p{margin:0 0 10px;font-size:15.5px;line-height:1.55;color:rgba(233,230,255,.78)}
+  #about .x{position:absolute;top:24px;right:26px;font-size:15px;color:var(--dim)}
+  #about .x:hover{color:var(--chalk)}
+  #about kbd{font:inherit;border:1px solid rgba(233,230,255,.3);border-radius:3px;padding:0 5px}
+  #about .t3{color:var(--c3)} #about .t6{color:var(--c6)} #about .t9{color:var(--c9)}
+
+  #toast{position:fixed;left:50%;bottom:118px;transform:translateX(-50%);max-width:min(620px,90vw);
+    padding:12px 18px;font-size:16px;line-height:1.4;background:rgba(13,10,40,.95);
+    border:1px solid rgba(255,211,107,.55);border-radius:3px;text-align:center}
+  #hint{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);font-size:17px;color:var(--dim);
+    pointer-events:none;text-align:center;max-width:34ch;line-height:1.45}
+
+  @media (max-width:760px){
+    #readout .freq,#phase b{font-size:36px}
+    #phase{gap:16px}
+    #bar{gap:10px 26px;padding:26px 18px 14px}
+    #bar button{font-size:15px}
+    #bar .grp.end{margin-left:0}
+  }
+</style>
+</head>
+<body>
+<canvas id="stage" aria-label="Live geometry drawn from the sound"></canvas>
+
+<div id="readout">
+  <div class="freq"><span id="hz">&ndash;</span><small>Hz</small></div>
+  <div class="line">loudest tone <b id="note"></b></div>
+  <div class="line">digital root <b id="root"></b></div>
+</div>
+
+<ol id="phase" aria-label="Where the current sound is in its life">
+  <li><b>3</b><span>start</span></li>
+  <li><b>6</b><span>peak</span></li>
+  <li><b>9</b><span>end</span></li>
+</ol>
+
+<div id="hint" hidden></div>
+<div id="toast" role="alert" hidden></div>
+
+<nav id="bar" aria-label="Controls">
+  <div class="grp">
+    <span class="lbl">Listen to</span>
+    <div class="row">
+      <button data-src="desktop" aria-pressed="false">Desktop audio</button>
+      <button data-src="mic" aria-pressed="false">Microphone</button>
+      <button data-src="off" id="stopBtn" hidden>Stop listening</button>
+    </div>
+  </div>
+  <div class="grp">
+    <span class="lbl">Scene</span>
+    <div class="row">
+      <button data-scene="0" aria-pressed="true">Vortex</button>
+      <button data-scene="1" aria-pressed="false">Cymatics</button>
+      <button data-scene="2" aria-pressed="false">Rosette</button>
+    </div>
+  </div>
+  <div class="grp">
+    <span class="lbl">Symmetry</span>
+    <div class="row sym">
+      <button data-sym="3" aria-pressed="false" aria-label="3-fold symmetry">3</button>
+      <button data-sym="6" aria-pressed="true" aria-label="6-fold symmetry">6</button>
+      <button data-sym="9" aria-pressed="false" aria-label="9-fold symmetry">9</button>
+      <button id="autoBtn" class="auto" aria-pressed="false" title="Step through 3, 6 and 9 every 15 seconds (key A)">Auto<i></i></button>
+    </div>
+  </div>
+  <div class="grp end">
+    <div class="row">
+      <button id="aboutBtn">What am I seeing?</button>
+      <button id="fsBtn">Full screen</button>
+    </div>
+  </div>
+</nav>
+
+<section id="welcome">
+  <h1>Sound Displayer</h1>
+  <div class="ver">V<i>3</i>.<i>6</i>.<i>9</i></div>
+  <p>Turns whatever is playing into geometry. Choose what to listen to.</p>
+  <div class="pick">
+    <button class="main" data-src="desktop">Listen to desktop audio</button>
+    <button data-src="mic">Listen to microphone</button>
+  </div>
+  <p class="fine">For desktop audio, your browser asks what to share. Choose <b>Entire screen</b> and switch on
+  <b>system audio</b>. Only the sound is read, and nothing is recorded or sent anywhere.</p>
+</section>
+
+<aside id="about" hidden aria-label="What am I seeing?">
+  <button class="x" id="aboutClose">Close</button>
+  <h2>What am I seeing?</h2>
+  <p>Every shape is computed from the live sound. Nothing is pre-drawn or random decoration.</p>
+
+  <h3>The 3, 6, 9 lamps</h3>
+  <p>Each burst of sound has a life. <span class="t3">3 lights when it starts</span>,
+  <span class="t6">6 when it reaches its peak</span>, and <span class="t9">9 when it ends</span>.
+  The same three colours mark those moments in every scene.</p>
+
+  <h3>Vortex</h3>
+  <p>Nine points on a circle, one for each octave of hearing, from deep bass at 1 to the highest treble at 9.
+  A point swells when its octave is loud.</p>
+  <p>The six-sided path 1, 2, 4, 8, 7, 5 is what you get by doubling a number and adding up its digits, over and over.
+  It never lands on 3, 6 or 9. Doubling a frequency is exactly one octave, so each spark that runs the path is the
+  loudest tone climbing octave by octave. A tone whose digits add up to 3 or 6 bounces between those two, and a 9 stays at 9.</p>
+  <p>The shape in the middle is the raw sound wave, wrapped around a circle with your chosen symmetry.</p>
+
+  <h3>Cymatics</h3>
+  <p>Sand on a vibrating drum skin. The sand is shaken off the parts that move and collects on the still lines,
+  the way real sand does on a real plate. Higher tones make more rings, and the symmetry sets how many
+  spokes the pattern has. The sand only moves while there is sound.</p>
+
+  <h3>Rosette</h3>
+  <p>The wave is drawn against a slightly delayed copy of itself. A pure tone becomes a perfect circle, and richer
+  sounds knot into loops. Copies are placed around the centre, so a steady tone at 6 draws the old
+  &ldquo;seed of life&rdquo; figure.</p>
+  <p>Behind it are 369 points on a circle, each joined to its multiple. The pitch sets the multiplier, so the
+  number of cusps grows as the tone rises.</p>
+
+  <h3>Auto symmetry</h3>
+  <p>Auto steps through 3, 6 and 9, holding each for about 15 seconds. It waits for the next beat to make the
+  change, so the switch lands on a start. Choosing a number yourself turns Auto off.</p>
+
+  <h3>About 3, 6, 9</h3>
+  <p>The saying about 3, 6 and 9 is widely credited to Nikola Tesla, though it has not been found in his own
+  writing. The number patterns used here are real arithmetic either way. One nice fact: the ratio 3 : 6 : 9 is
+  1 : 2 : 3, the first three harmonics of any musical note.</p>
+
+  <h3>Keys</h3>
+  <p><kbd>3</kbd> <kbd>6</kbd> <kbd>9</kbd> symmetry &nbsp; <kbd>Space</kbd> next scene &nbsp;
+  <kbd>A</kbd> auto symmetry &nbsp; <kbd>D</kbd> desktop &nbsp; <kbd>M</kbd> microphone &nbsp;
+  <kbd>F</kbd> full screen &nbsp; <kbd>H</kbd> hide controls</p>
+</aside>
+
+<script>
+'use strict';
+/* ============================================================
+   Sound Displayer V3.6.9
+   One file, no dependencies. Works offline in Edge or Chrome.
+   ============================================================ */
+const TAU = Math.PI * 2;
+const $ = id => document.getElementById(id);
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const C3 = [111, 227, 255], C6 = [255, 211, 107], C9 = [197, 139, 255], CH = [233, 230, 255];
+const PAL = [C3, C6, C9];
+const rgba = (c, a) => `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${a})`;
+const digitalRoot = n => n > 0 ? 1 + (n - 1) % 9 : 0;
+const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+/* colour for a pitch: walks cyan -> gold -> violet once per octave */
+function pal(t) {
+  t = ((t % 1) + 1) % 1 * 3;
+  const i = t | 0, f = t - i, a = PAL[i % 3], b = PAL[(i + 1) % 3];
+  return [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f];
+}
+
+/* ---------------- canvas ---------------- */
+const cv = $('stage'), g = cv.getContext('2d');
+let W = 0, H = 0, CX = 0, CY = 0, R = 0;
+function resize() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  W = innerWidth; H = innerHeight;
+  cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  CX = W / 2; CY = H / 2 - Math.min(18, H * 0.02); R = Math.min(W, H) * 0.38;
+  wipe();
+}
+function wipe() { g.globalCompositeOperation = 'source-over'; g.fillStyle = '#0a0820'; g.fillRect(0, 0, W, H); }
+function fade(a) { g.globalCompositeOperation = 'source-over'; g.fillStyle = `rgba(10,8,32,${a})`; g.fillRect(0, 0, W, H); }
+addEventListener('resize', resize);
+
+/* ---------------- state ---------------- */
+const S = {
+  scene: 0, sym: 6, source: null, auto: false, autoT: 0, onsetNow: false,
+  rms: 0, env: 0, avg: 0, ref: 0.02, level: 0, active: false, quiet: 0,
+  bands: new Float32Array(9), bandRef: -40, centroid: 0.4,
+  lockF: 0, hz: 0, root: 0, cand: { f: 0, n: 0 }, tint: CH.slice(),
+  phase: 0, f3: 0, f6: 0, f9: 0, peak: 0, tOn: -9, t9: -9, cycles: 0, u: -1, uT: -1, kick: 0
+};
+try {
+  const saved = JSON.parse(localStorage.getItem('sd369') || '{}');
+  if ([0, 1, 2].includes(saved.scene)) S.scene = saved.scene;
+  if ([3, 6, 9].includes(saved.sym)) S.sym = saved.sym;
+  if (saved.auto === true) S.auto = true;
+} catch (e) { /* storage unavailable: defaults are fine */ }
+function remember() { try { localStorage.setItem('sd369', JSON.stringify({ scene: S.scene, sym: S.sym, auto: S.auto })); } catch (e) {} }
+
+/* ---------------- audio ---------------- */
+const FFT = 4096;
+const A = { ctx: null, an: null, src: null, stream: null,
+            time: new Float32Array(FFT), freq: new Float32Array(FFT / 2) };
+
+async function ensureCtx() {
+  if (!A.ctx) {
+    A.ctx = new (window.AudioContext || window.webkitAudioContext)();
+    A.an = A.ctx.createAnalyser();
+    A.an.fftSize = FFT;
+    A.an.smoothingTimeConstant = 0.5;
+  }
+  if (A.ctx.state === 'suspended') await A.ctx.resume();
+}
+function stopSource() {
+  if (A.src) { try { A.src.disconnect(); } catch (e) {} }
+  if (A.stream) A.stream.getTracks().forEach(t => t.stop());
+  A.src = A.stream = null;
+  S.source = null;
+}
+async function setSource(kind) {
+  toast('');
+  if (kind === 'off') { stopSource(); syncUI(); return; }
+  try {
+    let stream = null;
+    if (kind === 'desktop') {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+        toast('This browser cannot capture desktop audio. Open the app in Edge or Chrome on a computer.'); return;
+      }
+      stream = await navigator.mediaDevices.getDisplayMedia({
+        video: { frameRate: { ideal: 1 }, width: { ideal: 320 } },   // a picture track is required; keep it tiny
+        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+        systemAudio: 'include', monitorTypeSurfaces: 'include'
+      });
+      if (!stream.getAudioTracks().length) {
+        stream.getTracks().forEach(t => t.stop());
+        toast('No sound was shared. Choose Desktop audio again, pick Entire screen, and switch on system audio before pressing Share.');
+        return;
+      }
+    } else if (kind === 'mic') {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+    }
+    await ensureCtx();
+    stopSource();
+    {
+      A.stream = stream;
+      A.src = A.ctx.createMediaStreamSource(stream);
+      A.src.connect(A.an);                       // analysed only, never played back
+      stream.getAudioTracks()[0].addEventListener('ended', () => {
+        if (A.stream !== stream) return;
+        stopSource(); syncUI(); toast('Listening stopped. Choose a source to start again.');
+      });
+    }
+    S.source = kind; S.quiet = 0; S.ref = 0.02;
+    $('welcome').hidden = true;
+    syncUI();
+  } catch (err) {
+    if (err && err.name === 'NotAllowedError')
+      toast(kind === 'mic' ? 'The microphone was blocked. Allow it when the browser asks, then choose Microphone again.'
+                           : 'Nothing was shared. Choose Desktop audio again and pick Entire screen with system audio on.');
+    else if (err && err.name === 'NotFoundError') toast('No microphone was found. Plug one in, or choose Desktop audio.');
+    else toast('Listening could not start: ' + (err && err.message ? err.message : err));
+  }
+}
+
+/* ---------------- analysis (runs every frame) ---------------- */
+const bandDb = new Float32Array(9);
+const pulses = [];
+
+function analyse(dt, now) {
+  const kf = t => 1 - Math.exp(-dt / t);
+  S.f3 *= Math.exp(-dt / 0.32); S.f6 *= Math.exp(-dt / 0.42); S.f9 *= Math.exp(-dt / 0.55);
+  S.kick *= Math.exp(-dt / 0.13);
+  S.u += (S.uT - S.u) * kf(0.09);
+
+  if (!A.an || !S.source) {
+    S.level += (0 - S.level) * kf(0.2); S.active = false; S.rms = 0;
+    for (let k = 0; k < 9; k++) S.bands[k] *= 1 - kf(0.25);
+    return;
+  }
+  const T = A.time, F = A.freq, n = T.length;
+  A.an.getFloatTimeDomainData(T);
+  A.an.getFloatFrequencyData(F);
+
+  /* loudness */
+  let s = 0; for (let i = n - 1024; i < n; i++) s += T[i] * T[i];
+  const rms = Math.sqrt(s / 1024);
+  S.rms = rms; S.active = rms > 0.0012;
+  S.quiet = S.active ? 0 : S.quiet + dt;
+  S.ref = Math.max(rms, S.ref * Math.exp(-dt / 8), 0.004);         // automatic gain
+  S.level += (Math.min(1, rms / S.ref) - S.level) * kf(0.07);
+  const prevEnv = S.env;
+  S.env = rms > S.env ? rms : S.env + (rms - S.env) * kf(0.07);
+  S.avg += (rms - S.avg) * kf(0.45);
+
+  /* nine octave bands: 31 Hz ... 16 kHz */
+  const binHz = A.ctx.sampleRate / FFT;
+  let maxDb = -200;
+  for (let k = 0; k < 9; k++) {
+    const lo = 31.25 * Math.pow(2, k);
+    const a = Math.max(1, Math.round(lo / binHz));
+    const b = Math.min(F.length - 1, Math.max(a + 1, Math.round(2 * lo / binHz)));
+    let p = 0; for (let i = a; i < b; i++) p += Math.pow(10, F[i] / 10);
+    bandDb[k] = 10 * Math.log10(p + 1e-20);
+    if (bandDb[k] > maxDb) maxDb = bandDb[k];
+  }
+  S.bandRef = Math.max(maxDb, S.bandRef - 6 * dt, -75);
+  let cs = 0, cw = 0;
+  for (let k = 0; k < 9; k++) {
+    const v = S.active ? clamp(1 - (S.bandRef - bandDb[k]) / 38, 0, 1) : 0;
+    S.bands[k] += (v - S.bands[k]) * (v > S.bands[k] ? kf(0.03) : kf(0.16));
+    cs += k * S.bands[k] * S.bands[k]; cw += S.bands[k] * S.bands[k];
+  }
+  if (cw > 0.01) S.centroid += (cs / cw / 8 - S.centroid) * kf(0.5);
+
+  /* loudest tone, 40 Hz ... 4.2 kHz, refined between FFT bins */
+  if (S.active) {
+    const i0 = Math.ceil(40 / binHz), i1 = Math.min(F.length - 2, Math.floor(4200 / binHz));
+    let bi = -1, bs = -1e9;
+    for (let i = i0; i <= i1; i++) { const sc = F[i] + 2 * Math.log2(i); if (sc > bs) { bs = sc; bi = i; } }
+    if (bi > 0 && F[bi] > -80) {
+      const a = F[bi - 1], b = F[bi], c = F[bi + 1], d = a - 2 * b + c;
+      track((bi + (d ? clamp(0.5 * (a - c) / d, -0.5, 0.5) : 0)) * binHz);
+    }
+  }
+  const target = S.hz ? pal(Math.log2(S.hz / 55)) : CH;
+  for (let i = 0; i < 3; i++) S.tint[i] += (target[i] - S.tint[i]) * kf(0.25);
+
+  /* 3 = start, 6 = peak, 9 = end */
+  const e = S.env;
+  const onset = S.active && e > S.avg * 1.3 && e > prevEnv * 1.06 && now - S.tOn > 0.16;
+  if (onset && S.phase !== 3) {
+    if (S.phase === 6) S.f9 = 1;                       // the end of one is the start of the next
+    S.phase = 3; S.tOn = now; S.f3 = 1; S.peak = e; S.kick = 1;
+    S.cycles++; S.uT = S.cycles * 3; S.onsetNow = true;
+    pulses.push({ t0: now, start: S.root || 1 });
+    if (pulses.length > 9) pulses.shift();
+  } else if (S.phase === 3) {
+    if (e > S.peak) S.peak = e;
+    if (e < S.peak * 0.96 || now - S.tOn > 0.3) { S.phase = 6; S.f6 = 1; S.uT = S.cycles * 3 + 1; }
+  } else if (S.phase === 6) {
+    if (e > S.peak) S.peak = e;
+    if (e < S.peak * 0.5 || !S.active) { S.phase = 9; S.f9 = 1; S.t9 = now; S.uT = S.cycles * 3 + 2; }
+  } else if (S.phase === 9 && now - S.t9 > 0.6 && !S.active) S.phase = 0;
+}
+
+/* hold on to a tone until a different one has clearly taken over */
+function track(f) {
+  const near = (a, b) => Math.abs(Math.log2(a / b)) < 0.045;
+  if (S.lockF && near(f, S.lockF)) { S.lockF += (f - S.lockF) * 0.2; S.cand.n = 0; }
+  else {
+    if (S.cand.n && near(f, S.cand.f)) { S.cand.n++; S.cand.f += (f - S.cand.f) * 0.5; }
+    else { S.cand.f = f; S.cand.n = 1; }
+    if (S.cand.n >= 3 || !S.lockF) { S.lockF = S.cand.f; S.cand.n = 0; S.hz = 0; }
+  }
+  if (!S.hz || Math.abs(S.lockF - S.hz) > 0.8) { S.hz = Math.round(S.lockF); S.root = digitalRoot(S.hz); }
+}
+
+/* ============================================================
+   Scene 1  Vortex: the 9-point circle
+   ============================================================ */
+function nodeXY(k, rad) { const a = -Math.PI / 2 + k * TAU / 9; return [CX + Math.cos(a) * rad, CY + Math.sin(a) * rad]; }
+const CIRCUIT = [1, 2, 4, 8, 7, 5];
+const NODE_COL = k => k === 3 ? C3 : k === 6 ? C6 : k === 9 ? C9 : CH;
+
+function drawVortex(dt, now) {
+  fade(0.24);
+  g.globalCompositeOperation = 'source-over';   // keeps the three colours true instead of burning to white
+  const Rv = R * 0.8, B = S.bands;
+  g.lineCap = 'round'; g.lineJoin = 'round';
+
+  g.lineWidth = 1; g.strokeStyle = rgba(CH, 0.09);
+  g.beginPath(); g.arc(CX, CY, Rv, 0, TAU); g.stroke();
+
+  /* doubling circuit 1-2-4-8-7-5 */
+  for (let i = 0; i < 6; i++) {
+    const a = CIRCUIT[i], b = CIRCUIT[(i + 1) % 6], e = (B[a - 1] + B[b - 1]) / 2;
+    const p = nodeXY(a, Rv), q = nodeXY(b, Rv);
+    g.strokeStyle = rgba(S.tint, 0.07 + 0.45 * e); g.lineWidth = 1 + 1.8 * e;
+    g.beginPath(); g.moveTo(p[0], p[1]); g.lineTo(q[0], q[1]); g.stroke();
+  }
+
+  /* the 3-6-9 triangle */
+  const tri = [[3, 6, Math.max(S.f3, S.f6)], [6, 9, Math.max(S.f6, S.f9)], [9, 3, Math.max(S.f9, S.f3) * 0.7]];
+  for (const [a, b, f] of tri) {
+    const p = nodeXY(a, Rv), q = nodeXY(b, Rv), gr = g.createLinearGradient(p[0], p[1], q[0], q[1]);
+    gr.addColorStop(0, rgba(NODE_COL(a), 0.1 + 0.75 * f)); gr.addColorStop(1, rgba(NODE_COL(b), 0.1 + 0.75 * f));
+    g.strokeStyle = gr; g.lineWidth = 1.2 + 2 * f;
+    g.beginPath(); g.moveTo(p[0], p[1]); g.lineTo(q[0], q[1]); g.stroke();
+  }
+  { /* marker that walks 3 -> 6 -> 9 with each sound */
+    const um = ((S.u % 3) + 3) % 3, si = um | 0, fr = um - si, V = [3, 6, 9];
+    const p = nodeXY(V[si], Rv), q = nodeXY(V[(si + 1) % 3], Rv);
+    const x = p[0] + (q[0] - p[0]) * fr, y = p[1] + (q[1] - p[1]) * fr;
+    g.fillStyle = rgba(CH, 0.35 + 0.6 * S.level);
+    g.beginPath(); g.arc(x, y, 3.5 + 3 * S.level, 0, TAU); g.fill();
+  }
+
+  /* sparks: the loudest tone climbing by octaves (doubling) */
+  const HOP = 0.2;
+  g.globalCompositeOperation = 'lighter';
+  for (let i = pulses.length - 1; i >= 0; i--) {
+    const pu = pulses[i], el = (now - pu.t0) / HOP;
+    if (el > 6) { pulses.splice(i, 1); continue; }
+    const h = el | 0, fr = el - h, ez = fr * fr * (3 - 2 * fr), al = 1 - el / 6;
+    let a = pu.start; for (let j = 0; j < h; j++) a = digitalRoot(a * 2);
+    const b = digitalRoot(a * 2), col = NODE_COL(a);
+    if (a === 9) {
+      const p = nodeXY(9, Rv);
+      g.strokeStyle = rgba(C9, 0.8 * al); g.lineWidth = 1.5;
+      g.beginPath(); g.arc(p[0], p[1], 8 + el * 9, 0, TAU); g.stroke();
+    } else {
+      const p = nodeXY(a, Rv), q = nodeXY(b, Rv);
+      g.fillStyle = rgba(col === CH ? S.tint : col, 0.95 * al);
+      g.beginPath(); g.arc(p[0] + (q[0] - p[0]) * ez, p[1] + (q[1] - p[1]) * ez, 4.5, 0, TAU); g.fill();
+    }
+  }
+
+  /* nine octave nodes */
+  g.globalCompositeOperation = 'source-over';
+  const fs = Math.max(15, R * 0.105);
+  g.font = `600 ${fs}px Bahnschrift, "DIN Alternate", "Segoe UI", sans-serif`;
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  for (let k = 1; k <= 9; k++) {
+    const e = B[k - 1], col = NODE_COL(k), p = nodeXY(k, Rv), q = nodeXY(k, Rv * (1.04 + 0.2 * e));
+    const p0 = nodeXY(k, Rv * 1.04);
+    g.strokeStyle = rgba(col, 0.12 + 0.6 * e); g.lineWidth = 2 + 4 * e;
+    g.beginPath(); g.moveTo(p0[0], p0[1]); g.lineTo(q[0], q[1]); g.stroke();
+    g.fillStyle = rgba(col, 0.3 + 0.6 * e);
+    g.beginPath(); g.arc(p[0], p[1], 3 + 8 * e, 0, TAU); g.fill();
+    const fl = k === 3 ? S.f3 : k === 6 ? S.f6 : k === 9 ? S.f9 : 0;
+    if (fl > 0.03) {
+      g.strokeStyle = rgba(col, fl * 0.9); g.lineWidth = 2;
+      g.beginPath(); g.arc(p[0], p[1], 10 + (1 - fl) * R * 0.14, 0, TAU); g.stroke();
+    }
+    const t = nodeXY(k, Rv * 1.4);
+    g.fillStyle = rgba(col, (k % 3 === 0 ? 0.3 : 0.14) + 0.4 * e);
+    g.fillText(String(k), t[0], t[1]);
+  }
+
+  /* centre: the raw wave wrapped into a figure with N-fold symmetry */
+  const T = A.time, N = S.sym, M = 110, Rc = Rv * 0.4;
+  const L = clamp(Math.round((A.ctx ? A.ctx.sampleRate : 48000) / (S.lockF || 220)), 48, 1400);   // one period of the loudest tone
+  let st = 1; for (let i = 1; i < T.length - L - 1; i++) { if (T[i - 1] < 0 && T[i] >= 0) { st = i; break; } }
+  const amp = S.source ? 0.42 / (S.ref * 1.5) : 0, rot = REDUCED ? 0 : now * 0.05;
+  g.beginPath();
+  for (let j = 0; j <= N * M; j++) {
+    const u = (j % M) / M, tt = u < 0.5 ? u * 2 : (1 - u) * 2;
+    const v = clamp(T[st + Math.round(tt * (L - 1))] * amp, -0.75, 1.3);
+    const a = rot + j / (N * M) * TAU - Math.PI / 2, r = Rc * (1 + v);
+    const x = CX + Math.cos(a) * r, y = CY + Math.sin(a) * r;
+    j ? g.lineTo(x, y) : g.moveTo(x, y);
+  }
+  g.closePath();
+  g.strokeStyle = rgba(S.tint, 0.07); g.lineWidth = 7; g.stroke();
+  g.strokeStyle = rgba(S.tint, 0.75); g.lineWidth = 1.6; g.stroke();
+}
+
+/* ============================================================
+   Scene 2  Cymatics: sand on a round drum skin
+   field = cos(n*angle) * Jn(ka*r) + beta * J0(kb*r)
+   ============================================================ */
+const NB = 4096, XM = 50, BESS = {}, ZEROS = {}, NORM = {};
+function buildBessel() {
+  for (const n of [0, 3, 6, 9]) {
+    const t = new Float32Array(NB), steps = 220; let mx = 0;
+    for (let i = 0; i < NB; i++) {
+      const x = i / (NB - 1) * XM; let s = 0;
+      for (let j = 0; j <= steps; j++) {
+        const th = j / steps * Math.PI, w = (j === 0 || j === steps) ? 0.5 : 1;
+        s += w * Math.cos(n * th - x * Math.sin(th));
+      }
+      t[i] = s / steps; if (Math.abs(t[i]) > mx) mx = Math.abs(t[i]);
+    }
+    const z = [];
+    for (let i = Math.ceil((n * 0.6 + 0.5) / XM * (NB - 1)) + 1; i < NB && z.length < 9; i++)
+      if (t[i - 1] * t[i] <= 0 && t[i - 1] !== t[i]) z.push((i - 1 + t[i - 1] / (t[i - 1] - t[i])) / (NB - 1) * XM);
+    BESS[n] = t; ZEROS[n] = z; NORM[n] = 1 / mx;
+  }
+}
+const NP = 9000, PX = new Float32Array(NP), PY = new Float32Array(NP);
+function seed(i) { const r = Math.sqrt(Math.random()), a = Math.random() * TAU; PX[i] = r * Math.cos(a); PY[i] = r * Math.sin(a); }
+for (let i = 0; i < NP; i++) seed(i);
+const CY2 = { ka: 0, kb: 0, beta: 0.4 };
+let cyN = 6, cyTab = null, cyNorm = 1;
+
+function field(x, y) {
+  const r = Math.sqrt(x * x + y * y);
+  let t0 = CY2.kb * r * (NB - 1) / XM, i0 = t0 | 0; if (i0 > NB - 2) i0 = NB - 2;
+  const b0 = BESS[0], j0 = b0[i0] + (b0[i0 + 1] - b0[i0]) * (t0 - i0);
+  if (r < 1e-5) return CY2.beta * j0;
+  const c = x / r, c3 = 4 * c * c * c - 3 * c;
+  const cn = cyN === 3 ? c3 : cyN === 6 ? 2 * c3 * c3 - 1 : 4 * c3 * c3 * c3 - 3 * c3;
+  let t1 = CY2.ka * r * (NB - 1) / XM, i1 = t1 | 0; if (i1 > NB - 2) i1 = NB - 2;
+  const jn = cyTab[i1] + (cyTab[i1 + 1] - cyTab[i1]) * (t1 - i1);
+  return cn * jn * cyNorm + CY2.beta * j0;
+}
+
+function drawCymatics(dt, now) {
+  fade(0.42);
+  g.globalCompositeOperation = 'lighter';
+  cyN = S.sym; cyTab = BESS[cyN]; cyNorm = NORM[cyN];
+  const kf = t => 1 - Math.exp(-dt / t);
+
+  /* the loudest tone sets how many rings; brightness of the sound sets the inner detail */
+  const p = S.lockF ? clamp(Math.log2(S.lockF / 55) / 6, 0, 1) : 0.25;
+  const ka = ZEROS[cyN][Math.round(p * 8)], kb = ZEROS[0][Math.round(S.centroid * 8)];
+  if (!CY2.ka) { CY2.ka = ka; CY2.kb = kb; }
+  CY2.ka += (ka - CY2.ka) * kf(0.22); CY2.kb += (kb - CY2.kb) * kf(0.5);
+  CY2.beta += (0.22 + 0.55 * (S.bands[0] + S.bands[1] + S.bands[2]) / 3 - CY2.beta) * kf(0.4);
+
+  /* sand: each grain steps toward the nearest still line, and is jostled where the skin moves */
+  const drive = S.active ? Math.min(1, S.level * 1.25) : 0, kick = S.kick * 0.018 * (S.active ? 1 : 0), h = 0.004;
+  const fine = clamp(13 / CY2.ka, 0.3, 1);
+  if (drive > 0 || kick > 0) {
+    for (let i = 0; i < NP; i++) {
+      let x = PX[i], y = PY[i];
+      const s0 = field(x, y), gx = (field(x + h, y) - s0) / h, gy = (field(x, y + h) - s0) / h;
+      const g2 = gx * gx + gy * gy + 1e-6;
+      let st = s0 / g2; const mag = Math.abs(s0) / Math.sqrt(g2);
+      if (mag > 0.03) st *= 0.03 / mag;
+      const jit = ((0.0022 + 0.02 * Math.min(1, Math.abs(s0))) * drive + kick) * fine;
+      x += -gx * st * 0.2 * drive + (Math.random() - 0.5) * 2 * jit;
+      y += -gy * st * 0.2 * drive + (Math.random() - 0.5) * 2 * jit;
+      if (x * x + y * y > 1) seed(i); else { PX[i] = x; PY[i] = y; }
+    }
+    for (let j = 0; j < 14; j++) seed(Math.random() * NP | 0);
+  }
+
+  /* draw: inner third cyan, middle gold, outer violet */
+  const Rp = R * 1.1, rot = REDUCED ? 0 : now * 0.025, cr = Math.cos(rot) * Rp, sr = Math.sin(rot) * Rp;
+  const sz = W > 1500 ? 1.8 : 1.4;
+  for (let z = 0; z < 3; z++) {
+    const lo = z / 3, hi = (z + 1) / 3;
+    g.fillStyle = rgba(PAL[z], 0.82); g.beginPath();
+    for (let i = 0; i < NP; i++) {
+      const x = PX[i], y = PY[i], r2 = x * x + y * y;
+      if (r2 < lo * lo || r2 >= hi * hi) continue;
+      g.rect(CX + x * cr - y * sr, CY + x * sr + y * cr, sz, sz);
+    }
+    g.fill();
+  }
+  g.strokeStyle = rgba(CH, 0.16 + 0.3 * S.f6); g.lineWidth = 1.2;
+  g.beginPath(); g.arc(CX, CY, Rp + 3, 0, TAU); g.stroke();
+}
+
+/* ============================================================
+   Scene 3  Rosette: wave vs. delayed wave, plus the 369 circle
+   ============================================================ */
+let ttM = 3;
+function drawRosette(dt, now) {
+  fade(0.3);
+  g.globalCompositeOperation = 'lighter';
+  g.lineCap = 'round'; g.lineJoin = 'round';
+  const N = S.sym, f = S.lockF || 220, sr = A.ctx ? A.ctx.sampleRate : 48000;
+
+  /* 369 points, each joined to its multiple; pitch sets the multiplier (cusps = multiplier - 1) */
+  const P = 369, Rt = R * 1.13;
+  const cusps = 1 + clamp(Math.log2(f / 55) / 6, 0, 1) * 8;
+  ttM += (cusps + 1 - ttM) * (1 - Math.exp(-dt / 0.7));
+  g.beginPath();
+  for (let i = 1; i < P; i++) {
+    const a1 = TAU * i / P - Math.PI / 2, a2 = TAU * i * ttM / P - Math.PI / 2;
+    g.moveTo(CX + Math.cos(a1) * Rt, CY + Math.sin(a1) * Rt);
+    g.lineTo(CX + Math.cos(a2) * Rt, CY + Math.sin(a2) * Rt);
+  }
+  g.strokeStyle = rgba(S.tint, 0.045 + 0.075 * S.level); g.lineWidth = 0.7; g.stroke();
+
+  if (!S.source) return;
+  /* a quarter-period delay turns a pure tone into a circle */
+  const T = A.time, n = T.length;
+  const tau = clamp(Math.round(sr / (4 * f)), 1, 300);
+  const len = clamp(12 * tau, 300, 1500), st = n - len - tau - 1, stepI = len > 900 ? 2 : 1;
+  const d = R * 0.37, sc = 1 / (S.ref * Math.SQRT2), spin = REDUCED ? 0 : now * 0.04;
+  /* straight up to 1.3 so a steady pure tone stays an exact circle through the centre; only loud peaks are eased in */
+  const soft = v => { const m = Math.abs(v); return m <= 1.3 ? v : Math.sign(v) * (1.3 + 0.5 * Math.tanh((m - 1.3) / 0.5)); };
+  for (let j = 0; j < N; j++) {
+    const ang = j * TAU / N + spin - Math.PI / 2, ca = Math.cos(ang), sa = Math.sin(ang);
+    const ox = CX + ca * d, oy = CY + sa * d;
+    g.beginPath();
+    for (let i = 0; i < len; i += stepI) {
+      const x = soft(T[st + i] * sc) * d, y = soft(T[st + i + tau] * sc) * d;
+      const px = ox + x * ca - y * sa, py = oy + x * sa + y * ca;
+      i ? g.lineTo(px, py) : g.moveTo(px, py);
+    }
+    g.strokeStyle = rgba(PAL[j % 3], 0.5); g.lineWidth = 1.15; g.stroke();
+  }
+}
+
+/* ---------------- interface ---------------- */
+const NOTE_NAMES = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'];
+const lamps = [...document.querySelectorAll('#phase li')];
+let hudT = 0;
+function hud(now) {
+  lamps[0].style.opacity = 0.28 + 0.72 * S.f3;
+  lamps[1].style.opacity = 0.28 + 0.72 * S.f6;
+  lamps[2].style.opacity = 0.28 + 0.72 * S.f9;
+  if (now - hudT < 0.12) return; hudT = now;
+  const live = S.source && S.hz && S.quiet < 1.5;
+  $('hz').textContent = live ? S.hz : '–';
+  if (live) {
+    const m = Math.round(12 * Math.log2(S.lockF / 440)) + 69;
+    $('note').textContent = NOTE_NAMES[((m % 12) + 12) % 12] + (Math.floor(m / 12) - 1);
+    $('root').textContent = S.root;
+    $('root').style.color = S.root === 3 ? 'var(--c3)' : S.root === 6 ? 'var(--c6)' : S.root === 9 ? 'var(--c9)' : '';
+  } else { $('note').textContent = ''; $('root').textContent = ''; }
+  const h = $('hint');
+  if (S.source && S.quiet > 3 && $('toast').hidden) {
+    h.textContent = S.source === 'desktop'
+      ? 'Listening, but no sound is arriving. If something is playing, choose Desktop audio again and switch on system audio.'
+      : 'Listening. Make some noise.';
+    h.hidden = false;
+  } else h.hidden = true;
+}
+function toast(msg) { const t = $('toast'); t.textContent = msg; t.hidden = !msg; }
+function syncUI() {
+  document.querySelectorAll('#bar [data-src]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.src === S.source)));
+  document.querySelectorAll('[data-scene]').forEach(b => b.setAttribute('aria-pressed', String(+b.dataset.scene === S.scene)));
+  document.querySelectorAll('[data-sym]').forEach(b => b.setAttribute('aria-pressed', String(+b.dataset.sym === S.sym)));
+  $('stopBtn').hidden = !S.source;
+  $('autoBtn').setAttribute('aria-pressed', String(S.auto));
+}
+function setScene(i) { S.scene = (i + 3) % 3; wipe(); syncUI(); remember(); }
+/* auto: after 15 s, wait for the next beat (up to 3 s more) so the switch lands on a 3 */
+const AUTO_SEC = 15;
+function autoStep(dt) {
+  const bar = document.querySelector('#autoBtn i');
+  if (!S.auto) { S.onsetNow = false; bar.style.width = '0'; return; }
+  S.autoT += dt;
+  if (S.autoT >= AUTO_SEC && (S.onsetNow || !S.active || S.autoT >= AUTO_SEC + 3)) {
+    S.autoT = 0; setSym(S.sym === 3 ? 6 : S.sym === 6 ? 9 : 3, true);
+  }
+  S.onsetNow = false;
+  bar.style.width = Math.min(100, S.autoT / AUTO_SEC * 100) + '%';
+}
+function setAuto(on) { S.auto = on; S.autoT = 0; syncUI(); remember(); }
+function setSym(n, fromAuto) { if (!fromAuto) S.auto = false; S.sym = n; if (S.scene === 1) for (let i = 0; i < NP; i += 3) seed(i); syncUI(); remember(); }
+function toggleFull() { document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen().catch(() => {}); }
+function toggleAbout(show) { const a = $('about'); a.hidden = show === undefined ? !a.hidden : !show; }
+
+document.addEventListener('click', ev => {
+  const b = ev.target.closest('button'); if (!b) return;
+  if (ev.detail > 0) b.blur();
+  if (b.dataset.src) setSource(b.dataset.src);
+  else if (b.dataset.scene) setScene(+b.dataset.scene);
+  else if (b.dataset.sym) setSym(+b.dataset.sym);
+  else if (b.id === 'autoBtn') setAuto(!S.auto);
+  else if (b.id === 'aboutBtn') toggleAbout();
+  else if (b.id === 'aboutClose') toggleAbout(false);
+  else if (b.id === 'fsBtn') toggleFull();
+});
+let forceHide = false;
+addEventListener('keydown', ev => {
+  if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
+  const k = ev.key.toLowerCase();
+  if (k === '3' || k === '6' || k === '9') setSym(+k);
+  else if (k === ' ' || k === 'arrowright') { if (ev.target.tagName !== 'BUTTON' || k !== ' ') { ev.preventDefault(); setScene(S.scene + 1); } }
+  else if (k === 'arrowleft') setScene(S.scene - 1);
+  else if (k === 'a') setAuto(!S.auto);
+  else if (k === 'd') setSource('desktop');
+  else if (k === 'm') setSource('mic');
+  else if (k === 'f') toggleFull();
+  else if (k === 'h') { forceHide = !forceHide; document.body.classList.toggle('idle', forceHide); }
+  else if (k === '?') toggleAbout();
+  else if (k === 'escape') toggleAbout(false);
+});
+/* controls step aside while you watch */
+let idleTimer = 0;
+function wake() {
+  if (forceHide) return;
+  document.body.classList.remove('idle'); clearTimeout(idleTimer);
+  idleTimer = setTimeout(() => {
+    if (S.source && $('about').hidden && $('welcome').hidden && !document.querySelector('#bar :focus-visible'))
+      document.body.classList.add('idle');
+  }, 3500);
+}
+addEventListener('pointermove', wake); addEventListener('pointerdown', wake); addEventListener('keydown', wake);
+
+/* ---------------- go ---------------- */
+buildBessel();
+resize(); syncUI();
+const SCENES = [drawVortex, drawCymatics, drawRosette];
+let last = performance.now();
+function frame(t) {
+  const now = t / 1000, dt = clamp((t - last) / 1000, 0.001, 0.05); last = t;
+  analyse(dt, now);
+  autoStep(dt);
+  SCENES[S.scene](dt, now);
+  hud(now);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+window.__sd = { S, A };   // handy for poking around in the console
+</script>
+</body>
+</html>
